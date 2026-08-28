@@ -1,0 +1,323 @@
+-- ================================================
+-- BAS HUB - Full Functional Script (5 Features)
+-- ================================================
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "BAS HUB",
+   LoadingTitle = "BAS HUB Loading...",
+   LoadingSubtitle = "by BAS",
+   ConfigurationSaving = {
+      Enabled = false
+   },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Main Features", 4483362458)
+
+-- Services & Variables
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Feature Toggles & Settings
+local AimbotEnabled = false
+local VisibleCheck = true
+local FOVVisible = true
+local FOVRadius = 150
+local Smoothness = 0.2
+
+local ESPEnabled = false
+local Highlights = {}
+
+local NoclipEnabled = false
+local NoclipConnection = nil
+
+-- ====================
+-- 1. FOV CIRCLE (กลางจอ)
+-- ====================
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1.5
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.NumSides = 60
+
+-- ====================
+-- 2. AIMBOT (ล็อกหัว + ไม่ทะลุกำแพง)
+-- ====================
+local function IsVisible(targetPart)
+    local origin = Camera.CFrame.Position
+    local destination = targetPart.Position
+    local direction = (destination - origin)
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = RaycastFilterType.Exclude
+    
+    local ignoreList = {LocalPlayer.Character}
+    if targetPart.Parent then
+        table.insert(ignoreList, targetPart.Parent)
+    end
+    raycastParams.FilterDescendantsInstances = ignoreList
+    raycastParams.IgnoreWater = true
+
+    local result = Workspace:Raycast(origin, direction, raycastParams)
+    return result == nil -- ถ้ารายคาสต์ไม่ชนสิ่งกีดขวาง แสดงว่ามองเห็น
+end
+
+local function GetClosestVisibleHead()
+    local closestPlayer = nil
+    local shortestDistance = FOVRadius
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("Humanoid") then
+            if player.Character.Humanoid.Health > 0 then
+                local head = player.Character.Head
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                    if distance < shortestDistance then
+                        if not VisibleCheck or IsVisible(head) then
+                            shortestDistance = distance
+                            closestPlayer = head
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- ====================
+-- 3. ESP มองทะลุ
+-- ====================
+local function ApplyESP(player)
+    if player ~= LocalPlayer then
+        local function AddHighlight(character)
+            if character and not character:FindFirstChild("BAS_ESP") then
+                local highlight = Instance.new("Highlight")
+                highlight.Name = "BAS_ESP"
+                highlight.Adornee = character
+                highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                highlight.FillTransparency = 0.5
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                highlight.OutlineTransparency = 0
+                highlight.Parent = character
+                Highlights[player] = highlight
+            end
+        end
+
+        if player.Character then
+            AddHighlight(player.Character)
+        end
+
+        player.CharacterAdded:Connect(function(character)
+            if ESPEnabled then
+                character:WaitForChild("HumanoidRootPart")
+                AddHighlight(character)
+            end
+        end)
+    end
+end
+
+local function RemoveESP(player)
+    if player.Character and player.Character:FindFirstChild("BAS_ESP") then
+        player.Character.BAS_ESP:Destroy()
+    end
+    Highlights[player] = nil
+end
+
+Players.PlayerAdded:Connect(function(player)
+    if ESPEnabled then
+        ApplyESP(player)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    RemoveESP(player)
+end)
+
+-- ====================
+-- 4. NOCLIP (เดินทะลุ)
+-- ====================
+local function EnableNoclip()
+    if NoclipConnection then NoclipConnection:Disconnect() end
+    NoclipConnection = RunService.Stepped:Connect(function()
+        if NoclipEnabled and LocalPlayer.Character then
+            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end
+
+local function DisableNoclip()
+    if NoclipConnection then
+        NoclipConnection:Disconnect()
+        NoclipConnection = nil
+    end
+    if LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+-- ====================
+-- UI CONTROLS & UI TABS
+-- ====================
+
+MainTab:CreateSection("Aimbot & FOV Settings")
+
+MainTab:CreateToggle({
+   Name = "1. ล็อกหัว (Aimbot)",
+   CurrentValue = false,
+   Flag = "AimbotToggle",
+   Callback = function(Value)
+      AimbotEnabled = Value
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "   └─ ตรวจจับสิ่งกีดขวาง (ล็อกไม่ทะลุกำแพง)",
+   CurrentValue = true,
+   Flag = "VisibleCheckToggle",
+   Callback = function(Value)
+      VisibleCheck = Value
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "2. แสดงวงกลม FOV กลางจอ (เปิด/ปิด)",
+   CurrentValue = true,
+   Flag = "FOVToggle",
+   Callback = function(Value)
+      FOVVisible = Value
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "   └─ รัศมีวงกลม FOV",
+   Range = {50, 500},
+   Increment = 10,
+   Suffix = "px",
+   CurrentValue = 150,
+   Flag = "FOVSlider",
+   Callback = function(Value)
+      FOVRadius = Value
+   end,
+})
+
+MainTab:CreateSection("Visuals & Movement")
+
+MainTab:CreateToggle({
+   Name = "3. มองทะลุ (ESP Highlight)",
+   CurrentValue = false,
+   Flag = "ESPToggle",
+   Callback = function(Value)
+      ESPEnabled = Value
+      if ESPEnabled then
+         for _, player in pairs(Players:GetPlayers()) do
+            ApplyESP(player)
+         end
+      else
+         for _, player in pairs(Players:GetPlayers()) do
+            RemoveESP(player)
+         end
+      end
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "4. เดินทะลุ (Noclip)",
+   CurrentValue = false,
+   Flag = "NoclipToggle",
+   Callback = function(Value)
+      NoclipEnabled = Value
+      if NoclipEnabled then
+         EnableNoclip()
+      else
+         DisableNoclip()
+      end
+   end,
+})
+
+MainTab:CreateSection("Teleport Features")
+
+MainTab:CreateButton({
+   Name = "5. วาร์ปไปจุดขายปืน (Teleport to Gun Shop)",
+   Callback = function()
+      if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+         local gunShopPos = nil
+
+         -- ค้นหาจุดขายปืนอัตโนมัติจากชื่อโมเดล/NPC ในแมพ
+         for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") or obj:IsA("Part") then
+               local lowerName = string.lower(obj.Name)
+               if string.find(lowerName, "gun") or string.find(lowerName, "weapon") or string.find(lowerName, "armory") or string.find(lowerName, "shop") then
+                  if obj:IsA("BasePart") then
+                     gunShopPos = obj.CFrame
+                     break
+                  elseif obj:IsA("Model") and obj.PrimaryPart then
+                     gunShopPos = obj.PrimaryPart.CFrame
+                     break
+                  elseif obj:IsA("Model") then
+                     local part = obj:FindFirstChildWhichIsA("BasePart")
+                     if part then
+                        gunShopPos = part.CFrame
+                        break
+                     end
+                  end
+               end
+            end
+         end
+
+         -- ย้ายตัวละคร
+         if gunShopPos then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = gunShopPos + Vector3.new(0, 3, 0)
+            Rayfield:Notify({
+               Title = "BAS HUB Notification",
+               Content = "วาร์ปไปยังจุดขายปืนเรียบร้อยแล้ว!",
+               Duration = 3,
+               Image = 4483362458,
+            })
+         else
+            Rayfield:Notify({
+               Title = "BAS HUB Notification",
+               Content = "ไม่พบจุดขายปืนในแมพนี้ (โปรดตรวจสอบชื่อจุดในแมพ)",
+               Duration = 4,
+               Image = 4483362458,
+            })
+         end
+      end
+   end,
+})
+
+-- Loop Update RenderStepped
+RunService.RenderStepped:Connect(function()
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    -- อัปเดตตำแหน่งวงกลม FOV กลางจอ
+    FOVCircle.Position = screenCenter
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Visible = FOVVisible
+
+    -- ทำงาน Aimbot
+    if AimbotEnabled then
+        local targetHead = GetClosestVisibleHead()
+        if targetHead then
+            local targetCFrame = CFrame.new(Camera.CFrame.Position, targetHead.Position)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Smoothness)
+        end
+    end
+end)
