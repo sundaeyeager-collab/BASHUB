@@ -1,0 +1,169 @@
+-- ================================================
+-- BAS HUB - ESP & Aimbot (Visible Check & No FOV)
+-- ================================================
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "BAS HUB",
+   LoadingTitle = "BAS HUB Loading...",
+   LoadingSubtitle = "by BAS",
+   ConfigurationSaving = {
+      Enabled = false
+   },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Main Features", 4483362458)
+
+-- ====================
+-- ESP SYSTEM
+-- ====================
+local ESPEnabled = false
+local Highlights = {}
+
+local function ApplyESP(player)
+    if player ~= game.Players.LocalPlayer then
+        local function AddHighlight(character)
+            if character and not character:FindFirstChild("BAS_ESP") then
+                local highlight = Instance.new("Highlight")
+                highlight.Name = "BAS_ESP"
+                highlight.Adornee = character
+                highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                highlight.FillTransparency = 0.5
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                highlight.OutlineTransparency = 0
+                highlight.Parent = character
+                Highlights[player] = highlight
+            end
+        end
+
+        if player.Character then
+            AddHighlight(player.Character)
+        end
+
+        player.CharacterAdded:Connect(function(character)
+            if ESPEnabled then
+                character:WaitForChild("HumanoidRootPart")
+                AddHighlight(character)
+            end
+        end)
+    end
+end
+
+local function RemoveESP(player)
+    if player.Character and player.Character:FindFirstChild("BAS_ESP") then
+        player.Character.BAS_ESP:Destroy()
+    end
+    Highlights[player] = nil
+end
+
+local ESPToggle = MainTab:CreateToggle({
+   Name = "ESP มองทะลุ (Highlight)",
+   CurrentValue = false,
+   Flag = "ESPToggle",
+   Callback = function(Value)
+      ESPEnabled = Value
+      if ESPEnabled then
+         for _, player in pairs(game.Players:GetPlayers()) do
+            ApplyESP(player)
+         end
+      else
+         for _, player in pairs(game.Players:GetPlayers()) do
+            RemoveESP(player)
+         end
+      end
+   end,
+})
+
+game.Players.PlayerAdded:Connect(function(player)
+    if ESPEnabled then
+        ApplyESP(player)
+    end
+end)
+
+game.Players.PlayerRemoving:Connect(function(player)
+    RemoveESP(player)
+end)
+
+-- ====================
+-- AIMBOT SYSTEM
+-- ====================
+local AimbotEnabled = false
+local Smoothness = 0.2
+
+local Camera = workspace.CurrentCamera
+local LocalPlayer = game.Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+local function GetClosestPlayerHead()
+    local closestPlayer = nil
+    local shortestDistance = math.huge -- ค้นหาเป้าหมายที่ใกล้ที่สุดโดยไม่จำกัดระยะ FOV
+
+    for _, player in pairs(game.Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("Humanoid") then
+            if player.Character.Humanoid.Health > 0 then
+                local head = player.Character.Head
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+
+                if onScreen then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local distance = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+
+                    if distance < shortestDistance then
+                        -- ระบบเช็กสิ่งกีดขวาง (Visible Check / Wall Check)
+                        local raycastParams = RaycastParams.new()
+                        raycastParams.FilterType = RaycastFilterType.Exclude
+                        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
+                        raycastParams.IgnoreWater = true
+
+                        local rayOrigin = Camera.CFrame.Position
+                        local rayDirection = head.Position - rayOrigin
+                        local raycastResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+                        -- ล็อกเฉพาะเป้าหมายที่ไม่ถูกสิ่งกีดขวางบัง
+                        if not raycastResult then
+                            shortestDistance = distance
+                            closestPlayer = head
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+MainTab:CreateSection("Aimbot Settings")
+
+local AimbotToggle = MainTab:CreateToggle({
+   Name = "Aimbot (ล็อกหัว)",
+   CurrentValue = false,
+   Flag = "AimbotToggle",
+   Callback = function(Value)
+      AimbotEnabled = Value
+   end,
+})
+
+local SmoothnessSlider = MainTab:CreateSlider({
+   Name = "ความนุ่มนวล (Smoothness)",
+   Range = {1, 10},
+   Increment = 1,
+   Suffix = " Level",
+   CurrentValue = 2,
+   Flag = "SmoothnessSlider",
+   Callback = function(Value)
+      Smoothness = 1 / (Value * 2.5)
+   end,
+})
+
+-- อัปเดตการล็อกหัวแบบ Smooth
+game:GetService("RunService").RenderStepped:Connect(function()
+    if AimbotEnabled then
+        local targetHead = GetClosestPlayerHead()
+        if targetHead then
+            local targetCFrame = CFrame.new(Camera.CFrame.Position, targetHead.Position)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Smoothness)
+        end
+    end
+end)
